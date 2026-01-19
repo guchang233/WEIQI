@@ -31,10 +31,10 @@ const App: React.FC = () => {
   const [flashBlack, setFlashBlack] = useState(false);
   const [flashWhite, setFlashWhite] = useState(false);
   
-  // 表情限制状态
+  // 核心功能：表情发送计数
   const [myEmojiCount, setMyEmojiCount] = useState(0);
 
-  // 悔棋握手状态
+  // 核心功能：悔棋握手状态
   const [isWaitingUndoResponse, setIsWaitingUndoResponse] = useState(false);
   const [showUndoRequestModal, setShowUndoRequestModal] = useState(false);
 
@@ -46,7 +46,7 @@ const App: React.FC = () => {
   const connRef = useRef<any>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
 
-  // 核心：当棋盘历史变动（落子或悔棋成功）时，重置表情计数
+  // 规则实现：每当棋盘历史发生变化（有人下棋或悔棋成功），重置表情计数
   useEffect(() => {
     setMyEmojiCount(0);
   }, [gameState.history.length]);
@@ -85,7 +85,6 @@ const App: React.FC = () => {
       setMyColor('black');
       setView('game');
       setupConnection(conn);
-      // 发送当前完整状态给加入者
       conn.on('open', () => {
         conn.send({ type: 'SYNC', payload: { gameState, chatLog } });
       });
@@ -97,7 +96,7 @@ const App: React.FC = () => {
     conn.on('data', (data: NetworkMessage) => handleNetworkMessage(data));
     conn.on('close', () => { 
       setIsConnected(false); 
-      addSystemMessage("对手已离开房间。"); 
+      addSystemMessage("对手断开连接。"); 
       setIsWaitingUndoResponse(false);
       setShowUndoRequestModal(false);
     });
@@ -118,18 +117,27 @@ const App: React.FC = () => {
       case 'MOVE': executeMove(msg.payload, false); break;
       case 'PASS': processPass(false); break;
       case 'CHAT': receiveChat(msg.payload); break;
-      case 'UNDO_REQ': setShowUndoRequestModal(true); break;
+      
+      // 核心功能：接收悔棋请求
+      case 'UNDO_REQ': 
+        setShowUndoRequestModal(true); 
+        break;
+      
+      // 核心功能：对方同意悔棋
       case 'UNDO_ACCEPT': 
         performUndoAction(); 
         setIsWaitingUndoResponse(false); 
         setMessage("对方已同意悔棋");
         setTimeout(() => setMessage(''), 2000);
         break;
+      
+      // 核心功能：对方拒绝悔棋
       case 'UNDO_DECLINE': 
         setIsWaitingUndoResponse(false); 
         setMessage("对方拒绝了悔棋"); 
         setTimeout(() => setMessage(''), 2000); 
         break;
+
       case 'SYNC': 
         setGameState(msg.payload.gameState);
         setChatLog(msg.payload.chatLog || []);
@@ -150,7 +158,6 @@ const App: React.FC = () => {
 
   const onBoardClick = (p: Point) => {
     if (gameState.gameOver || isWaitingUndoResponse || showUndoRequestModal) return;
-    // 联机状态下校验回合
     if (isConnected && gameState.currentPlayer !== myColor) {
       setMessage("还没轮到你");
       setTimeout(() => setMessage(''), 1000);
@@ -168,60 +175,71 @@ const App: React.FC = () => {
   };
 
   const executeMove = (p: Point, shouldSend: boolean = true) => {
-    const validation = GoRules.isValidMove(gameState.board, p, gameState.currentPlayer, gameState.history.map(h => h.board));
-    if (validation.valid && validation.newBoard) {
+    setGameState(prev => {
+      const validation = GoRules.isValidMove(prev.board, p, prev.currentPlayer, prev.history.map(h => h.board));
+      if (!validation.valid || !validation.newBoard) {
+        if (shouldSend) {
+          setMessage(validation.error === 'Suicide move is illegal' ? '不能自杀' : '无效');
+          setTimeout(() => setMessage(''), 1500);
+        }
+        return prev;
+      }
+
       const currentSnapshot: HistoryEntry = {
-        board: JSON.stringify(gameState.board),
-        captured: { ...gameState.captured },
-        lastMove: gameState.lastMove,
-        player: gameState.currentPlayer
+        board: JSON.stringify(prev.board),
+        captured: { ...prev.captured },
+        lastMove: prev.lastMove,
+        player: prev.currentPlayer
       };
 
-      const nextPlayer = gameState.currentPlayer === 'black' ? 'white' : 'black';
-      const updatedCaptured = { ...gameState.captured };
+      const nextPlayer = prev.currentPlayer === 'black' ? 'white' : 'black';
+      const updatedCaptured = { ...prev.captured };
       const capturedDelta = validation.captured || 0;
-      updatedCaptured[gameState.currentPlayer] += capturedDelta;
+      updatedCaptured[prev.currentPlayer] += capturedDelta;
 
-      // 特效触发
       if (capturedDelta > 0) {
-        if (gameState.currentPlayer === 'black') { setFlashBlack(true); setTimeout(() => setFlashBlack(false), 600); }
+        if (prev.currentPlayer === 'black') { setFlashBlack(true); setTimeout(() => setFlashBlack(false), 600); }
         else { setFlashWhite(true); setTimeout(() => setFlashWhite(false), 600); }
       }
 
-      setGameState(prev => ({
+      if (shouldSend && connRef.current) {
+        connRef.current.send({ type: 'MOVE', payload: p });
+      }
+
+      setMessage('');
+      return {
         ...prev,
-        board: validation.newBoard!,
+        board: validation.newBoard,
         currentPlayer: nextPlayer,
         captured: updatedCaptured,
         history: [...prev.history, currentSnapshot],
         passCount: 0,
         lastMove: p,
-      }));
-      
-      setMessage('');
-      if (shouldSend && connRef.current) {
-        connRef.current.send({ type: 'MOVE', payload: p });
-      }
-    } else {
-      setMessage(validation.error === 'Suicide move is illegal' ? '不能自杀' : '无效');
-      setTimeout(() => setMessage(''), 1500);
-    }
+      };
+    });
   };
 
-  // 悔棋流程
+  // 核心功能：发起悔棋请求
   const requestUndo = () => {
     if (gameState.history.length === 0 || gameState.gameOver || isWaitingUndoResponse) return;
+    
     if (!isConnected) {
       performUndoAction();
       return;
     }
+
     setIsWaitingUndoResponse(true);
-    connRef.current?.send({ type: 'UNDO_REQ', payload: null });
+    addSystemMessage("你向对手发起了悔棋请求...");
+    if (connRef.current) {
+      connRef.current.send({ type: 'UNDO_REQ', payload: null });
+    }
   };
 
+  // 核心功能：响应悔棋请求
   const respondToUndoRequest = (agreed: boolean) => {
     setShowUndoRequestModal(false);
     if (!connRef.current) return;
+    
     if (agreed) {
       performUndoAction();
       connRef.current.send({ type: 'UNDO_ACCEPT', payload: null });
@@ -232,11 +250,13 @@ const App: React.FC = () => {
     }
   };
 
+  // 核心功能：执行物理撤销
   const performUndoAction = () => {
     setGameState(prev => {
       if (prev.history.length === 0) return prev;
       const lastHistory = prev.history[prev.history.length - 1];
       const newHistory = prev.history.slice(0, -1);
+      
       return {
         ...prev,
         board: JSON.parse(lastHistory.board),
@@ -250,22 +270,6 @@ const App: React.FC = () => {
     setMessage('');
   };
 
-  const calculateWinner = (state: GameState) => {
-    let blackStones = 0;
-    let whiteStones = 0;
-    state.board.forEach(row => row.forEach(cell => {
-      if (cell === 'black') blackStones++;
-      if (cell === 'white') whiteStones++;
-    }));
-    const blackTotal = blackStones + state.captured.black;
-    const whiteTotal = whiteStones + state.captured.white;
-    return {
-      blackTotal,
-      whiteTotal,
-      winner: blackTotal > whiteTotal ? 'black' : blackTotal < whiteTotal ? 'white' : 'draw'
-    };
-  };
-
   const processPass = (shouldSend: boolean = true) => {
     if (gameState.gameOver) return;
     if (isConnected && gameState.currentPlayer !== myColor && shouldSend) {
@@ -274,32 +278,41 @@ const App: React.FC = () => {
       return;
     }
 
-    const nextPassCount = gameState.passCount + 1;
-    const isGameOver = nextPassCount >= 2;
-    const nextPlayer = gameState.currentPlayer === 'black' ? 'white' : 'black';
-    
-    let winnerInfo: any = null;
-    if (isGameOver) {
-      winnerInfo = calculateWinner(gameState);
-    }
+    setGameState(prev => {
+      const nextPassCount = prev.passCount + 1;
+      const isGameOver = nextPassCount >= 2;
+      const nextPlayer = prev.currentPlayer === 'black' ? 'white' : 'black';
+      
+      let winnerInfo: any = null;
+      if (isGameOver) {
+        let blackStones = 0; let whiteStones = 0;
+        prev.board.forEach(row => row.forEach(cell => {
+          if (cell === 'black') blackStones++;
+          if (cell === 'white') whiteStones++;
+        }));
+        const blackTotal = blackStones + prev.captured.black;
+        const whiteTotal = whiteStones + prev.captured.white;
+        winnerInfo = blackTotal > whiteTotal ? 'black' : blackTotal < whiteTotal ? 'white' : 'draw';
+      }
 
-    setGameState(prev => ({ 
-      ...prev, 
-      currentPlayer: nextPlayer, 
-      passCount: nextPassCount, 
-      gameOver: isGameOver, 
-      lastMove: null,
-      winner: winnerInfo?.winner || null
-    }));
-    
-    const playerName = gameState.currentPlayer === 'black' ? '黑方' : '白方';
-    addSystemMessage(isGameOver ? "双方跳过，对局结束！" : `${playerName} 跳过了一手。`);
-    
-    if (shouldSend && connRef.current) connRef.current.send({ type: 'PASS', payload: null });
+      if (shouldSend && connRef.current) connRef.current.send({ type: 'PASS', payload: null });
+      
+      const playerName = prev.currentPlayer === 'black' ? '黑方' : '白方';
+      addSystemMessage(isGameOver ? "双方跳过，对局结束！" : `${playerName} 跳过了一手。`);
+
+      return { 
+        ...prev, 
+        currentPlayer: nextPlayer, 
+        passCount: nextPassCount, 
+        gameOver: isGameOver, 
+        lastMove: null,
+        winner: winnerInfo || null
+      };
+    });
   };
 
   const resetGame = (shouldSend: boolean = true) => {
-    const newState: GameState = {
+    const freshState: GameState = {
       board: Array(BOARD_SIZE).fill(null).map(() => Array(BOARD_SIZE).fill(null)),
       currentPlayer: 'black',
       captured: { black: 0, white: 0 },
@@ -309,7 +322,7 @@ const App: React.FC = () => {
       winner: null,
       lastMove: null,
     };
-    setGameState(newState);
+    setGameState(freshState);
     setMyEmojiCount(0);
     setMessage('对局已重置');
     addSystemMessage("--- 游戏重新开始 ---");
@@ -321,8 +334,8 @@ const App: React.FC = () => {
   const sendChat = (text: string, isEmoji = false) => {
     if (!text.trim()) return;
 
-    // 表情限制：基于历史长度确定的“回合”进行计数
-    if (isEmoji && isConnected) {
+    // 核心规则：单个玩家单回合内发送三次表情后禁止发送
+    if (isEmoji) {
       if (myEmojiCount >= 3) {
         setMessage("本回合表情上限已达(3/3)");
         setTimeout(() => setMessage(''), 1500);
@@ -385,25 +398,23 @@ const App: React.FC = () => {
     );
   }
 
-  const score = calculateWinner(gameState);
-
   return (
     <div className="h-screen flex flex-col items-center bg-[#0a0a0a] p-3 gap-3 text-white overflow-hidden select-none">
-      {/* Top Header */}
+      {/* 顶部标题栏 */}
       <div className="w-full max-w-6xl flex items-center justify-between px-6 py-3 bg-neutral-900/80 rounded-3xl border border-white/5 shadow-lg backdrop-blur-md">
-        <button onClick={() => setView('lobby')} className="text-gray-500 hover:text-white text-[11px] font-black tracking-widest transition-colors uppercase">‹ Back</button>
+        <button onClick={() => setView('lobby')} className="text-gray-500 hover:text-white text-[11px] font-black tracking-widest transition-colors uppercase">‹ 返回大厅</button>
         <div className="flex flex-col items-center">
            <h2 className="title-font text-2xl text-yellow-500 leading-none">Q弹围棋</h2>
-           <span className="text-[8px] text-gray-600 font-bold uppercase tracking-tighter mt-1">{isConnected ? `已与对手建立连接` : '本地离线模式'}</span>
+           <span className="text-[8px] text-gray-600 font-bold uppercase mt-1">{isConnected ? `联机中` : '本地模式'}</span>
         </div>
         <div className="flex items-center gap-2">
-          <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-500 animate-pulse' : 'bg-red-500 opacity-40'}`}></div>
+          <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></div>
           <span className="text-[10px] font-black text-gray-500 uppercase">{isConnected ? 'ONLINE' : 'OFFLINE'}</span>
         </div>
       </div>
 
       <div className="flex flex-col lg:flex-row gap-6 w-full max-w-[1400px] justify-center flex-1 overflow-hidden px-4">
-        {/* Left Control Panel */}
+        {/* 左侧控制栏 */}
         <div className="hidden lg:flex flex-col gap-3 w-48 shrink-0">
            <div className={`p-5 rounded-[2rem] border-2 transition-all duration-500 ${gameState.currentPlayer === 'black' ? 'bg-black border-yellow-500 shadow-[0_0_20px_rgba(234,179,8,0.2)]' : 'bg-neutral-900/50 border-transparent opacity-30'} ${flashBlack ? 'animate-flash' : ''}`}>
               <div className="flex items-center justify-between mb-2">
@@ -424,21 +435,21 @@ const App: React.FC = () => {
               <button 
                 disabled={gameState.gameOver || gameState.history.length === 0 || isWaitingUndoResponse}
                 onClick={requestUndo} 
-                className={`w-full font-black py-4 rounded-2xl transition-all active:scale-95 text-[11px] border border-white/5 uppercase tracking-widest ${gameState.gameOver || gameState.history.length === 0 || isWaitingUndoResponse ? 'bg-neutral-900 text-gray-700' : 'bg-indigo-900/40 hover:bg-indigo-800/60 text-indigo-200'}`}
+                className={`w-full font-black py-4 rounded-2xl transition-all active:scale-95 text-[11px] border border-white/5 uppercase tracking-widest ${gameState.gameOver || gameState.history.length === 0 || isWaitingUndoResponse ? 'bg-neutral-900 text-gray-700 cursor-not-allowed' : 'bg-indigo-900/40 hover:bg-indigo-800/60 text-indigo-200'}`}
               >
-                {isWaitingUndoResponse ? '申请悔棋中...' : '申请悔棋 Undo'}
+                {isWaitingUndoResponse ? '请求悔棋中...' : '申请悔棋 Undo'}
               </button>
               <button 
                 disabled={gameState.gameOver || (isConnected && gameState.currentPlayer !== myColor)}
                 onClick={() => processPass()} 
                 className={`w-full font-black py-5 rounded-2xl transition-all active:scale-95 text-[11px] border border-white/5 uppercase tracking-widest ${gameState.gameOver || (isConnected && gameState.currentPlayer !== myColor) ? 'bg-neutral-900 text-gray-700' : 'bg-neutral-800 hover:bg-neutral-700 text-white'}`}
               >
-                跳过 Skip
+                跳过回合 Skip
               </button>
            </div>
         </div>
 
-        {/* Center Game Board */}
+        {/* 棋盘主区 */}
         <div className="relative flex-1 flex flex-col items-center justify-center min-h-0">
            <div className="relative">
               <GoBoard 
@@ -451,42 +462,32 @@ const App: React.FC = () => {
                 lastMove={gameState.lastMove}
               />
               
-              {/* 关键功能：悔棋确认模态框 */}
+              {/* 悔棋确认弹窗 - 接收方显示 */}
               {showUndoRequestModal && (
-                <div className="absolute inset-0 z-[200] flex items-center justify-center bg-black/60 backdrop-blur-md rounded-[2rem] animate-fade-in">
-                   <div className="bg-neutral-900 p-10 rounded-[2.5rem] border-2 border-indigo-500 shadow-2xl flex flex-col items-center gap-6 max-w-[85%] text-center">
-                      <div className="text-2xl font-black text-white uppercase tracking-tight">对手申请悔棋</div>
-                      <p className="text-xs text-gray-400 leading-relaxed">对手想要撤销刚才的操作，这可能会改变局势。你同意吗？</p>
+                <div className="absolute inset-0 z-[200] flex items-center justify-center bg-black/70 backdrop-blur-md rounded-[2rem] animate-fade-in p-6">
+                   <div className="bg-neutral-900 p-8 rounded-[2.5rem] border-2 border-indigo-500 shadow-2xl flex flex-col items-center gap-6 text-center max-w-sm">
+                      <div className="text-2xl font-black text-white uppercase">对手想悔棋</div>
+                      <p className="text-xs text-gray-400 leading-relaxed">对手请求撤销上一步。如果你同意，局势将会回退。</p>
                       <div className="flex gap-4 w-full">
-                         <button onClick={() => respondToUndoRequest(false)} className="flex-1 bg-neutral-800 hover:bg-neutral-700 text-white font-black py-4 rounded-2xl transition-all active:scale-95 uppercase text-[10px] tracking-widest">拒绝 No</button>
-                         <button onClick={() => respondToUndoRequest(true)} className="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white font-black py-4 rounded-2xl transition-all active:scale-95 shadow-lg shadow-indigo-900/20 uppercase text-[10px] tracking-widest">同意 Yes</button>
+                         <button onClick={() => respondToUndoRequest(false)} className="flex-1 bg-neutral-800 hover:bg-neutral-700 text-white font-black py-4 rounded-2xl transition-all active:scale-95 uppercase text-[10px] tracking-widest">拒绝</button>
+                         <button onClick={() => respondToUndoRequest(true)} className="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white font-black py-4 rounded-2xl transition-all active:scale-95 shadow-lg shadow-indigo-900/20 uppercase text-[10px] tracking-widest">同意</button>
                       </div>
                    </div>
                 </div>
               )}
 
               {gameState.gameOver && (
-                <div className="absolute inset-0 z-[110] flex items-center justify-center bg-black/70 backdrop-blur-sm animate-fade-in rounded-[2rem]">
+                <div className="absolute inset-0 z-[110] flex items-center justify-center bg-black/80 backdrop-blur-sm animate-fade-in rounded-[2rem]">
                    <div className="bg-neutral-900 p-12 rounded-[3rem] border-2 border-yellow-500 shadow-2xl flex flex-col items-center gap-6 text-center">
                       <h3 className="title-font text-4xl text-yellow-500 uppercase">对局结束</h3>
-                      <div className="flex gap-12 my-2">
-                        <div className="flex flex-col">
-                           <span className="text-[10px] text-gray-500 font-black uppercase mb-1">黑方总计</span>
-                           <span className="text-4xl font-black text-white">{score.blackTotal}</span>
-                        </div>
-                        <div className="flex flex-col">
-                           <span className="text-[10px] text-gray-500 font-black uppercase mb-1">白方总计</span>
-                           <span className="text-4xl font-black text-white/40">{score.whiteTotal}</span>
-                        </div>
-                      </div>
-                      <div className="text-lg font-bold text-yellow-500 animate-pulse">
-                         {score.winner === 'draw' ? '平局，棋逢对手！' : `${score.winner === 'black' ? '黑方' : '白方'} 胜出！`}
+                      <div className="text-lg font-bold text-yellow-500">
+                         {gameState.winner === 'draw' ? '平局' : `${gameState.winner === 'black' ? '黑方' : '白方'} 胜利！`}
                       </div>
                       <button 
                         onClick={() => resetGame()} 
-                        className="mt-2 w-full bg-yellow-600 hover:bg-yellow-500 text-white font-black py-4 px-12 rounded-2xl transition-all active:scale-95 uppercase text-xs tracking-[0.2em]"
+                        className="mt-2 w-full bg-yellow-600 hover:bg-yellow-500 text-white font-black py-4 px-12 rounded-2xl transition-all active:scale-95 uppercase text-xs tracking-widest"
                       >
-                        重新对局 Rematch
+                        重新对局
                       </button>
                    </div>
                 </div>
@@ -506,12 +507,12 @@ const App: React.FC = () => {
            </div>
         </div>
 
-        {/* Right Chat Panel */}
+        {/* 右侧聊天栏 */}
         <div className="w-full lg:w-80 flex flex-col gap-3 shrink-0 h-[250px] lg:h-auto overflow-hidden">
           <div className="flex-1 bg-neutral-900/50 rounded-[2.5rem] border border-white/5 flex flex-col overflow-hidden backdrop-blur-xl shadow-xl">
             <div className="bg-white/5 px-5 py-3 border-b border-white/5 flex justify-between items-center">
-              <span className="text-[10px] font-black uppercase tracking-widest text-gray-400">聊天室</span>
-              <span className="text-[9px] font-bold text-gray-600 italic">TURN {gameState.history.length}</span>
+              <span className="text-[10px] font-black uppercase tracking-widest text-gray-400">聊天/记录</span>
+              <span className="text-[9px] font-bold text-gray-600 italic">STEP {gameState.history.length}</span>
             </div>
             <div className="flex-1 overflow-y-auto p-5 flex flex-col gap-3 scrollbar-hide">
               {chatLog.map((msg) => (
@@ -529,10 +530,10 @@ const App: React.FC = () => {
               <div ref={chatEndRef} />
             </div>
             
-            {/* 表情选择器与计数 */}
+            {/* 表情限制器界面 */}
             <div className="p-4 bg-white/5 flex flex-col gap-2">
                 <div className="flex justify-between items-center px-1">
-                    <span className="text-[9px] text-gray-500 uppercase font-black">本手表情次数</span>
+                    <span className="text-[9px] text-gray-500 uppercase font-black">本手表情限制</span>
                     <span className={`text-[10px] font-black ${myEmojiCount >= 3 ? 'text-red-500' : 'text-gray-300'}`}>{myEmojiCount} / 3</span>
                 </div>
                 <div className="grid grid-cols-7 gap-1">
@@ -542,6 +543,7 @@ const App: React.FC = () => {
                         onClick={() => sendChat(e, true)} 
                         disabled={myEmojiCount >= 3}
                         className={`text-xl transition-all ${myEmojiCount >= 3 ? 'grayscale opacity-20 cursor-not-allowed' : 'hover:scale-150 active:scale-90'}`}
+                        title={myEmojiCount >= 3 ? "本回合已达上限" : ""}
                     >
                       {e}
                     </button>
@@ -554,7 +556,7 @@ const App: React.FC = () => {
                 type="text" 
                 value={inputText}
                 onChange={(e) => setInputText(e.target.value)}
-                placeholder="交流棋艺..."
+                placeholder="在此交流..."
                 className="flex-1 bg-transparent border-none text-[12px] outline-none text-white px-2 placeholder:text-gray-700"
               />
               <button type="submit" className="bg-indigo-600 hover:bg-indigo-500 px-5 py-2 rounded-xl text-[10px] font-black transition-all active:scale-95 uppercase tracking-tighter">
