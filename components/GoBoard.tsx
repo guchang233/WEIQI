@@ -67,7 +67,7 @@ const GoBoard: React.FC<GoBoardProps> = ({ board, onMove, currentPlayer, disable
     }
   };
 
-  // 1. 识别相邻同色棋子，并显著区分连接权重
+  // 1. 识别相邻同色棋子，区分权重
   const connectivity = useMemo(() => {
     const stones: { black: Point[], white: Point[] } = { black: [], white: [] };
     const pairs: AdjacencyPair[] = [];
@@ -111,11 +111,11 @@ const GoBoard: React.FC<GoBoardProps> = ({ board, onMove, currentPlayer, disable
         className="cursor-crosshair touch-none overflow-visible"
       >
         <defs>
-          <filter id="gooey-ultra-refined" x="-50%" y="-50%" width="200%" height="200%">
-            {/* 降低模糊半径到 0.06，确保只有极近的距离才会融合，保持棋子主体轮廓 */}
-            <feGaussianBlur in="SourceGraphic" stdDeviation={cellSize * 0.06} result="blurred" />
-            {/* 极大提高对比度 (120) 并调整偏移 (-45)，让连接处呈现出如同液体丝线般的纤细感 */}
-            <feColorMatrix in="blurred" mode="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 120 -45" result="goo" />
+          <filter id="gooey-organic" x="-50%" y="-50%" width="200%" height="200%">
+            {/* 适度增加模糊半径 (从 0.06 -> 0.12)，提供足够的“墨水扩散”空间来实现圆角 */}
+            <feGaussianBlur in="SourceGraphic" stdDeviation={cellSize * 0.12} result="blurred" />
+            {/* 降低对比度 (从 120 -> 50) 并重新校准偏移 (-22)，使边缘在模糊的基础上重新锐化，形成圆滑的连接颈部 */}
+            <feColorMatrix in="blurred" mode="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 50 -22" result="goo" />
           </filter>
         </defs>
 
@@ -129,8 +129,8 @@ const GoBoard: React.FC<GoBoardProps> = ({ board, onMove, currentPlayer, disable
           ))}
         </g>
 
-        {/* 2. 精准分层粘稠：通过极细线条消除“臃肿感” */}
-        <g transform={`translate(${padding}, ${padding})`} filter="url(#gooey-ultra-refined)">
+        {/* 2. 精致分层粘稠：调整线宽以配合新的滤镜参数，获得更自然的圆度 */}
+        <g transform={`translate(${padding}, ${padding})`} filter="url(#gooey-organic)">
           <g fill="#141414">
             {connectivity.stones.black.map((s) => (
               <circle key={`b-base-${s.x}-${s.y}`} cx={s.x * cellSize} cy={s.y * cellSize} r={stoneRadius} />
@@ -141,8 +141,8 @@ const GoBoard: React.FC<GoBoardProps> = ({ board, onMove, currentPlayer, disable
                 x1={pair.p1.x * cellSize} y1={pair.p1.y * cellSize} 
                 x2={pair.p2.x * cellSize} y2={pair.p2.y * cellSize} 
                 stroke="#141414" 
-                // 关键改动：大幅减小线宽：横竖仅 0.12，斜向仅 0.08。这会在视觉上产生极其克制的“丝线”
-                strokeWidth={pair.isDiagonal ? cellSize * 0.08 : cellSize * 0.12} 
+                // 增加一点宽度以提供足够的像素供滤镜进行圆滑化处理
+                strokeWidth={pair.isDiagonal ? cellSize * 0.15 : cellSize * 0.22} 
                 strokeLinecap="round"
               />
             ))}
@@ -157,14 +157,14 @@ const GoBoard: React.FC<GoBoardProps> = ({ board, onMove, currentPlayer, disable
                 x1={pair.p1.x * cellSize} y1={pair.p1.y * cellSize} 
                 x2={pair.p2.x * cellSize} y2={pair.p2.y * cellSize} 
                 stroke="#ffffff" 
-                strokeWidth={pair.isDiagonal ? cellSize * 0.08 : cellSize * 0.12} 
+                strokeWidth={pair.isDiagonal ? cellSize * 0.15 : cellSize * 0.22} 
                 strokeLinecap="round"
               />
             ))}
           </g>
         </g>
 
-        {/* 幽灵指示器 */}
+        {/* 交互反馈层 */}
         {pendingMove && (
           <g transform={`translate(${padding}, ${padding})`}>
             <circle cx={pendingMove.x * cellSize} cy={pendingMove.y * cellSize} r={stoneRadius * 1.1} fill="none" stroke={currentPlayer === 'black' ? 'rgba(0,0,0,0.2)' : 'rgba(255,255,255,0.4)'} strokeDasharray="2,2" />
@@ -185,7 +185,7 @@ const GoBoard: React.FC<GoBoardProps> = ({ board, onMove, currentPlayer, disable
           ))}
         </g>
 
-        {/* 顶层装饰细节 */}
+        {/* 顶层细节渲染 */}
         <g transform={`translate(${padding}, ${padding})`}>
           {connectivity.stones.black.map((s) => (
             <g key={`bf-${s.x}-${s.y}`} className={isLastMove(s.x, s.y) ? 'animate-spring-in' : ''}>

@@ -24,7 +24,8 @@ const App: React.FC = () => {
   const [peerId, setPeerId] = useState<string>('');
   const [remotePeerId, setRemotePeerId] = useState<string>('');
   const [myColor, setMyColor] = useState<PlayerColor | 'spectator'>('black');
-  const [connected, setConnected] = useState<boolean>(false);
+  const [connected, setBoolean] = useState<boolean>(false); // renamed for clarity if needed, but connected is fine
+  const [isConnected, setIsConnected] = useState<boolean>(false);
   const [message, setMessage] = useState<string>('');
   const [cellSize, setCellSize] = useState<number>(20);
   const [pendingMove, setPendingMove] = useState<Point | null>(null);
@@ -43,9 +44,20 @@ const App: React.FC = () => {
     const handleResize = () => {
       const width = window.innerWidth;
       const height = window.innerHeight;
-      const minDim = Math.min(width - 40, height - 300); 
-      const idealSize = Math.floor(minDim / (BOARD_SIZE + 1));
-      setCellSize(Math.max(14, Math.min(idealSize, 24)));
+      
+      // PC 端左右有面板，高度是主要限制；移动端高度限制更多
+      const isDesktop = width >= 1024;
+      const heightPadding = isDesktop ? 160 : 280;
+      const widthPadding = isDesktop ? 400 : 40;
+      
+      const availableWidth = width - widthPadding;
+      const availableHeight = height - heightPadding;
+      
+      const minDim = Math.min(availableWidth, availableHeight); 
+      const idealSize = Math.floor(minDim / (BOARD_SIZE + 1.5));
+      
+      // 将最大尺寸从 24 上调到 42，最小尺寸从 14 调到 16
+      setCellSize(Math.max(16, Math.min(idealSize, 42)));
     };
     handleResize();
     window.addEventListener('resize', handleResize);
@@ -64,7 +76,7 @@ const App: React.FC = () => {
     peer.on('open', (id: string) => setPeerId(id));
     peer.on('connection', (conn: any) => {
       connRef.current = conn;
-      setConnected(true);
+      setIsConnected(true);
       setMyColor('black');
       setView('game');
       setupConnection(conn);
@@ -75,14 +87,14 @@ const App: React.FC = () => {
 
   const setupConnection = (conn: any) => {
     conn.on('data', (data: NetworkMessage) => handleNetworkMessage(data));
-    conn.on('close', () => { setConnected(false); addSystemMessage("对手已断开连接"); });
+    conn.on('close', () => { setIsConnected(false); addSystemMessage("对手已断开连接"); });
   };
 
   const connectToPeer = (id: string) => {
     if (!peerRef.current || !id) return;
     const conn = peerRef.current.connect(id);
     connRef.current = conn;
-    setConnected(true);
+    setIsConnected(true);
     setMyColor('white');
     setView('game');
     setupConnection(conn);
@@ -113,7 +125,7 @@ const App: React.FC = () => {
 
   const onBoardClick = (p: Point) => {
     if (gameState.gameOver) return;
-    if (connected && gameState.currentPlayer !== myColor) {
+    if (isConnected && gameState.currentPlayer !== myColor) {
       setMessage("还没轮到你");
       setTimeout(() => setMessage(''), 1000);
       return;
@@ -182,7 +194,7 @@ const App: React.FC = () => {
   const processPass = (shouldSend: boolean = true) => {
     if (gameState.gameOver) return;
     
-    if (connected && gameState.currentPlayer !== myColor && shouldSend) {
+    if (isConnected && gameState.currentPlayer !== myColor && shouldSend) {
       setMessage("还没轮到你");
       setTimeout(() => setMessage(''), 1000);
       return;
@@ -300,39 +312,39 @@ const App: React.FC = () => {
   return (
     <div className="h-screen flex flex-col items-center bg-[#0a0a0a] p-2 gap-2 select-none overflow-hidden text-white">
       {/* Header */}
-      <div className="w-full max-w-4xl flex items-center justify-between px-4 py-2 bg-neutral-900/80 rounded-xl border border-white/5 shadow-lg backdrop-blur-md">
-        <button onClick={() => setView('lobby')} className="text-gray-500 hover:text-white text-[10px] font-black tracking-tighter transition-colors">‹ 退出</button>
-        <h2 className="title-font text-base text-yellow-500">Q弹围棋</h2>
+      <div className="w-full max-w-6xl flex items-center justify-between px-6 py-3 bg-neutral-900/80 rounded-2xl border border-white/5 shadow-lg backdrop-blur-md">
+        <button onClick={() => setView('lobby')} className="text-gray-500 hover:text-white text-[11px] font-black tracking-tighter transition-colors">‹ 退出</button>
+        <h2 className="title-font text-xl text-yellow-500">Q弹围棋</h2>
         <div className="flex items-center gap-1.5">
-          <div className={`w-1.5 h-1.5 rounded-full ${connected ? 'bg-green-500 shadow-[0_0_5px_green]' : 'bg-red-500 opacity-30'}`}></div>
-          <span className="text-[8px] font-black text-gray-500 uppercase">{connected ? '已联机' : '离线模式'}</span>
+          <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-500 shadow-[0_0_8px_green]' : 'bg-red-500 opacity-30'}`}></div>
+          <span className="text-[10px] font-black text-gray-500 uppercase">{isConnected ? '已联机' : '离线模式'}</span>
         </div>
       </div>
 
-      <div className="flex flex-col lg:flex-row gap-4 w-full max-w-6xl justify-center flex-1 overflow-hidden">
+      <div className="flex flex-col lg:flex-row gap-6 w-full max-w-[1400px] justify-center flex-1 overflow-hidden px-4">
         {/* Left Stats */}
-        <div className="hidden lg:flex flex-col gap-2 w-32 shrink-0">
-           <div className={`p-3 rounded-xl border-2 transition-all duration-500 ${gameState.currentPlayer === 'black' ? 'bg-black border-yellow-500 shadow-xl' : 'bg-neutral-900 border-transparent opacity-20'} ${flashBlack ? 'animate-flash' : ''}`}>
-              <div className="flex items-center justify-between mb-1"><span className="text-[9px] font-black uppercase tracking-widest">Black</span><span className="text-lg">☻</span></div>
-              <div className={`text-yellow-500 text-[10px] font-black leading-none`}>提子: {gameState.captured.black}</div>
+        <div className="hidden lg:flex flex-col gap-3 w-44 shrink-0">
+           <div className={`p-4 rounded-2xl border-2 transition-all duration-500 ${gameState.currentPlayer === 'black' ? 'bg-black border-yellow-500 shadow-xl' : 'bg-neutral-900 border-transparent opacity-20'} ${flashBlack ? 'animate-flash' : ''}`}>
+              <div className="flex items-center justify-between mb-2"><span className="text-[10px] font-black uppercase tracking-widest">Black</span><span className="text-2xl">☻</span></div>
+              <div className={`text-yellow-500 text-xs font-black leading-none`}>提子: {gameState.captured.black}</div>
            </div>
-           <div className={`p-3 rounded-xl border-2 transition-all duration-500 ${gameState.currentPlayer === 'white' ? 'bg-white border-yellow-500 shadow-xl' : 'bg-neutral-900 border-transparent opacity-20'} ${flashWhite ? 'animate-flash' : ''}`}>
-              <div className="flex items-center justify-between mb-1"><span className="text-black text-[9px] font-black uppercase tracking-widest">White</span><span className="text-lg text-black">☺</span></div>
-              <div className={`text-neutral-500 text-[10px] font-black leading-none`}>提子: {gameState.captured.white}</div>
+           <div className={`p-4 rounded-2xl border-2 transition-all duration-500 ${gameState.currentPlayer === 'white' ? 'bg-white border-yellow-500 shadow-xl' : 'bg-neutral-900 border-transparent opacity-20'} ${flashWhite ? 'animate-flash' : ''}`}>
+              <div className="flex items-center justify-between mb-2"><span className="text-black text-[10px] font-black uppercase tracking-widest">White</span><span className="text-2xl text-black">☺</span></div>
+              <div className={`text-neutral-500 text-xs font-black leading-none`}>提子: {gameState.captured.white}</div>
            </div>
            
            <button 
              disabled={gameState.gameOver}
              onClick={() => processPass()} 
-             className={`mt-auto w-full font-black py-4 rounded-xl transition-all active:scale-95 text-[11px] border border-white/5 uppercase tracking-widest ${gameState.gameOver ? 'bg-neutral-900 text-gray-700' : 'bg-neutral-800 hover:bg-neutral-700 text-white'}`}
+             className={`mt-auto w-full font-black py-5 rounded-2xl transition-all active:scale-95 text-[12px] border border-white/5 uppercase tracking-widest ${gameState.gameOver ? 'bg-neutral-900 text-gray-700' : 'bg-neutral-800 hover:bg-neutral-700 text-white'}`}
            >
              {gameState.passCount === 1 ? '确认结束 Skip' : '跳过 Skip'}
            </button>
         </div>
 
         {/* Center Board */}
-        <div className="relative flex-1 flex flex-col items-center justify-center min-h-0">
-           <div className="relative">
+        <div className="relative flex-1 flex flex-col items-center justify-center min-h-0 overflow-visible">
+           <div className="relative shadow-2xl rounded-3xl">
               <GoBoard 
                 board={gameState.board} 
                 onMove={onBoardClick} 
@@ -345,25 +357,25 @@ const App: React.FC = () => {
               
               {/* 对局结束结算窗口 */}
               {gameState.gameOver && (
-                <div className="absolute inset-0 z-[110] flex items-center justify-center bg-black/60 backdrop-blur-sm animate-fade-in rounded-2xl">
-                   <div className="bg-neutral-900 p-8 rounded-[2rem] border-2 border-yellow-500/30 shadow-2xl flex flex-col items-center gap-4 text-center">
-                      <h3 className="title-font text-2xl text-yellow-500 uppercase tracking-widest">对局结束</h3>
-                      <div className="flex gap-8 my-2">
+                <div className="absolute inset-0 z-[110] flex items-center justify-center bg-black/60 backdrop-blur-sm animate-fade-in rounded-3xl">
+                   <div className="bg-neutral-900 p-10 rounded-[2.5rem] border-2 border-yellow-500/30 shadow-2xl flex flex-col items-center gap-5 text-center">
+                      <h3 className="title-font text-3xl text-yellow-500 uppercase tracking-widest">对局结束</h3>
+                      <div className="flex gap-10 my-4">
                         <div className="flex flex-col">
-                           <span className="text-[10px] text-gray-500 font-black uppercase">黑方得分</span>
-                           <span className="text-3xl font-black">{score.blackTotal}</span>
+                           <span className="text-[11px] text-gray-500 font-black uppercase">黑方得分</span>
+                           <span className="text-4xl font-black">{score.blackTotal}</span>
                         </div>
                         <div className="flex flex-col">
-                           <span className="text-[10px] text-gray-500 font-black uppercase">白方得分</span>
-                           <span className="text-3xl font-black text-white/50">{score.whiteTotal}</span>
+                           <span className="text-[11px] text-gray-500 font-black uppercase">白方得分</span>
+                           <span className="text-4xl font-black text-white/50">{score.whiteTotal}</span>
                         </div>
                       </div>
-                      <div className="text-sm font-bold text-yellow-500">
+                      <div className="text-base font-bold text-yellow-500">
                          {score.winner === 'draw' ? '握手言和！' : `${score.winner === 'black' ? '黑方' : '白方'} 获得了胜利！`}
                       </div>
                       <button 
                         onClick={() => resetGame()} 
-                        className="mt-2 w-full bg-yellow-600 hover:bg-yellow-500 text-white font-black py-3 px-8 rounded-xl transition-all active:scale-95 shadow-lg shadow-yellow-900/20 uppercase text-xs tracking-widest"
+                        className="mt-3 w-full bg-yellow-600 hover:bg-yellow-500 text-white font-black py-4 px-10 rounded-2xl transition-all active:scale-95 shadow-lg shadow-yellow-900/20 uppercase text-sm tracking-widest"
                       >
                         再来一局 Rematch
                       </button>
@@ -374,53 +386,53 @@ const App: React.FC = () => {
               {/* 浮动表情动画 */}
               {floatingEmoji && (
                 <div key={floatingEmoji.id} className="absolute inset-0 flex items-center justify-center pointer-events-none z-[100]">
-                  <span className="text-6xl animate-bounce-in">{floatingEmoji.emoji}</span>
+                  <span className="text-7xl animate-emoji-pop">{floatingEmoji.emoji}</span>
                 </div>
               )}
               {/* 游戏内提示消息 */}
               {message && (
-                <div key={message} className="absolute top-1/2 left-1/2 bg-yellow-500 text-black px-6 py-2 rounded-full font-black text-[10px] uppercase tracking-widest shadow-2xl animate-bubble-fade z-[60] pointer-events-none">
+                <div key={message} className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-yellow-500 text-black px-8 py-3 rounded-full font-black text-xs uppercase tracking-widest shadow-2xl z-[120] pointer-events-none whitespace-nowrap">
                     {message}
                 </div>
               )}
            </div>
            
            {/* Mobile Controls */}
-           <div className="lg:hidden flex w-full max-w-[400px] gap-2 mt-4">
-              <div className={`flex-1 p-2 rounded-lg border text-center ${gameState.currentPlayer === 'black' ? 'bg-black border-yellow-500' : 'bg-neutral-900 border-transparent opacity-30'}`}>
-                <span className="text-[9px] block">黑方 ☻</span>
-                <span className="text-[10px] font-black text-yellow-500">{gameState.captured.black}</span>
+           <div className="lg:hidden flex w-full max-w-[500px] gap-3 mt-6">
+              <div className={`flex-1 p-3 rounded-xl border text-center ${gameState.currentPlayer === 'black' ? 'bg-black border-yellow-500' : 'bg-neutral-900 border-transparent opacity-30'}`}>
+                <span className="text-[10px] block">黑方 ☻</span>
+                <span className="text-[11px] font-black text-yellow-500">{gameState.captured.black}</span>
               </div>
               <button 
                 disabled={gameState.gameOver}
                 onClick={() => processPass()} 
-                className={`flex-[2] py-2 rounded-lg font-black text-[10px] uppercase tracking-widest ${gameState.gameOver ? 'bg-neutral-900 text-gray-700' : 'bg-neutral-800 text-white'}`}
+                className={`flex-[2] py-3 rounded-xl font-black text-[11px] uppercase tracking-widest ${gameState.gameOver ? 'bg-neutral-900 text-gray-700' : 'bg-neutral-800 text-white'}`}
               >
                 {gameState.passCount === 1 ? '确认结束' : '跳过 Skip'}
               </button>
-              <div className={`flex-1 p-2 rounded-lg border text-center ${gameState.currentPlayer === 'white' ? 'bg-white border-yellow-500' : 'bg-neutral-900 border-transparent opacity-30'}`}>
-                <span className="text-[9px] block text-black">白方 ☺</span>
-                <span className="text-[10px] font-black text-neutral-500">{gameState.captured.white}</span>
+              <div className={`flex-1 p-3 rounded-xl border text-center ${gameState.currentPlayer === 'white' ? 'bg-white border-yellow-500' : 'bg-neutral-900 border-transparent opacity-30'}`}>
+                <span className="text-[10px] block text-black">白方 ☺</span>
+                <span className="text-[11px] font-black text-neutral-500">{gameState.captured.white}</span>
               </div>
            </div>
         </div>
 
         {/* Right Chat & Emojis */}
-        <div className="w-full lg:w-64 flex flex-col gap-2 shrink-0 h-[200px] lg:h-auto overflow-hidden">
-          <div className="flex-1 bg-neutral-900/50 rounded-2xl border border-white/5 flex flex-col overflow-hidden backdrop-blur-sm">
-            <div className="bg-white/5 px-3 py-1.5 border-b border-white/5 flex justify-between items-center">
-              <span className="text-[9px] font-black uppercase tracking-widest text-gray-400">聊天记录</span>
-              <span className="text-[9px] text-gray-600">{chatLog.length} 条</span>
+        <div className="w-full lg:w-72 flex flex-col gap-3 shrink-0 h-[220px] lg:h-auto overflow-hidden">
+          <div className="flex-1 bg-neutral-900/50 rounded-[2rem] border border-white/5 flex flex-col overflow-hidden backdrop-blur-sm shadow-xl">
+            <div className="bg-white/5 px-4 py-2.5 border-b border-white/5 flex justify-between items-center">
+              <span className="text-[10px] font-black uppercase tracking-widest text-gray-400">实时对局室</span>
+              <span className="text-[9px] text-gray-600">{chatLog.length} messages</span>
             </div>
-            <div className="flex-1 overflow-y-auto p-3 flex flex-col gap-2 scrollbar-hide">
+            <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-3 scrollbar-hide">
               {chatLog.map((msg) => (
                 <div key={msg.id} className={`flex flex-col ${msg.color === 'spectator' ? 'items-center' : msg.sender === (myColor === 'black' ? '黑方' : '白方') ? 'items-end' : 'items-start'}`}>
-                  {msg.color !== 'spectator' && <span className="text-[8px] text-gray-500 mb-0.5">{msg.sender}</span>}
-                  <div className={`px-2.5 py-1.5 rounded-2xl text-[11px] max-w-[90%] break-words ${
-                    msg.color === 'spectator' ? 'bg-transparent text-gray-500 italic text-[9px] text-center' :
+                  {msg.color !== 'spectator' && <span className="text-[9px] text-gray-500 mb-0.5 px-1">{msg.sender}</span>}
+                  <div className={`px-3.5 py-2 rounded-2xl text-[12px] max-w-[90%] break-words leading-relaxed ${
+                    msg.color === 'spectator' ? 'bg-transparent text-gray-500 italic text-[10px] text-center' :
                     msg.sender === (myColor === 'black' ? '黑方' : '白方') ? 'bg-indigo-600 text-white rounded-tr-none' : 
                     'bg-neutral-800 text-white rounded-tl-none'
-                  } ${msg.isEmoji ? 'text-2xl bg-transparent p-0' : ''}`}>
+                  } ${msg.isEmoji ? 'text-3xl bg-transparent p-0' : 'shadow-sm'}`}>
                     {msg.text}
                   </div>
                 </div>
@@ -428,23 +440,23 @@ const App: React.FC = () => {
               <div ref={chatEndRef} />
             </div>
             
-            <div className="p-2 flex gap-1 justify-center border-t border-white/5 bg-white/5">
+            <div className="p-3 flex gap-1.5 justify-center border-t border-white/5 bg-white/5">
               {EMOJIS.map(e => (
-                <button key={e} onClick={() => sendChat(e, true)} className="text-lg hover:scale-125 transition-transform active:scale-95 duration-75">
+                <button key={e} onClick={() => sendChat(e, true)} className="text-xl hover:scale-150 transition-transform active:scale-95 duration-150">
                   {e}
                 </button>
               ))}
             </div>
 
-            <form onSubmit={(e) => { e.preventDefault(); sendChat(inputText); }} className="p-2 bg-black/40 flex gap-2">
+            <form onSubmit={(e) => { e.preventDefault(); sendChat(inputText); }} className="p-3 bg-black/40 flex gap-2">
               <input 
                 type="text" 
                 value={inputText}
                 onChange={(e) => setInputText(e.target.value)}
-                placeholder="发送消息..."
-                className="flex-1 bg-transparent border-none text-[11px] outline-none text-white px-2 placeholder:text-gray-600"
+                placeholder="在此交流棋艺..."
+                className="flex-1 bg-transparent border-none text-[12px] outline-none text-white px-2 placeholder:text-gray-600"
               />
-              <button type="submit" className="bg-indigo-600 hover:bg-indigo-500 px-3 py-1 rounded-lg text-[10px] font-bold transition-colors">
+              <button type="submit" className="bg-indigo-600 hover:bg-indigo-500 px-4 py-1.5 rounded-xl text-[11px] font-black transition-all active:scale-95">
                 发送
               </button>
             </form>
