@@ -67,7 +67,7 @@ const GoBoard: React.FC<GoBoardProps> = ({ board, onMove, currentPlayer, disable
     }
   };
 
-  // 1. 识别相邻同色棋子，并区分类型
+  // 1. 识别相邻同色棋子，并显著区分连接权重
   const connectivity = useMemo(() => {
     const stones: { black: Point[], white: Point[] } = { black: [], white: [] };
     const pairs: AdjacencyPair[] = [];
@@ -77,12 +77,11 @@ const GoBoard: React.FC<GoBoardProps> = ({ board, onMove, currentPlayer, disable
         if (!cell) return;
         stones[cell].push({ x, y });
         
-        // 只检查右方、下方、右下方、左下方，避免重复连接
         const checkList = [
-          { dx: 1, dy: 0, diag: false }, // 右
-          { dx: 0, dy: 1, diag: false }, // 下
-          { dx: 1, dy: 1, diag: true },  // 右下
-          { dx: -1, dy: 1, diag: true }, // 左下
+          { dx: 1, dy: 0, diag: false },
+          { dx: 0, dy: 1, diag: false },
+          { dx: 1, dy: 1, diag: true },
+          { dx: -1, dy: 1, diag: true },
         ];
 
         checkList.forEach(({ dx, dy, diag }) => {
@@ -112,10 +111,11 @@ const GoBoard: React.FC<GoBoardProps> = ({ board, onMove, currentPlayer, disable
         className="cursor-crosshair touch-none overflow-visible"
       >
         <defs>
-          <filter id="gooey-extreme-precise" x="-50%" y="-50%" width="200%" height="200%">
-            {/* 进一步减小模糊度 (0.1)，通过提高矩阵对比度 (80) 来获得极其尖锐的“颈部” */}
-            <feGaussianBlur in="SourceGraphic" stdDeviation={cellSize * 0.1} result="blurred" />
-            <feColorMatrix in="blurred" mode="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 80 -38" result="goo" />
+          <filter id="gooey-ultra-refined" x="-50%" y="-50%" width="200%" height="200%">
+            {/* 降低模糊半径到 0.06，确保只有极近的距离才会融合，保持棋子主体轮廓 */}
+            <feGaussianBlur in="SourceGraphic" stdDeviation={cellSize * 0.06} result="blurred" />
+            {/* 极大提高对比度 (120) 并调整偏移 (-45)，让连接处呈现出如同液体丝线般的纤细感 */}
+            <feColorMatrix in="blurred" mode="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 120 -45" result="goo" />
           </filter>
         </defs>
 
@@ -129,9 +129,8 @@ const GoBoard: React.FC<GoBoardProps> = ({ board, onMove, currentPlayer, disable
           ))}
         </g>
 
-        {/* 2. 精准分层粘稠效果 */}
-        <g transform={`translate(${padding}, ${padding})`} filter="url(#gooey-extreme-precise)">
-          {/* 黑棋本体与不同粗细的桥接 */}
+        {/* 2. 精准分层粘稠：通过极细线条消除“臃肿感” */}
+        <g transform={`translate(${padding}, ${padding})`} filter="url(#gooey-ultra-refined)">
           <g fill="#141414">
             {connectivity.stones.black.map((s) => (
               <circle key={`b-base-${s.x}-${s.y}`} cx={s.x * cellSize} cy={s.y * cellSize} r={stoneRadius} />
@@ -142,13 +141,12 @@ const GoBoard: React.FC<GoBoardProps> = ({ board, onMove, currentPlayer, disable
                 x1={pair.p1.x * cellSize} y1={pair.p1.y * cellSize} 
                 x2={pair.p2.x * cellSize} y2={pair.p2.y * cellSize} 
                 stroke="#141414" 
-                // 横竖稍微宽一点点，斜向则使用极细的线条实现“拉丝”
-                strokeWidth={pair.isDiagonal ? cellSize * 0.15 : cellSize * 0.28} 
+                // 关键改动：大幅减小线宽：横竖仅 0.12，斜向仅 0.08。这会在视觉上产生极其克制的“丝线”
+                strokeWidth={pair.isDiagonal ? cellSize * 0.08 : cellSize * 0.12} 
                 strokeLinecap="round"
               />
             ))}
           </g>
-          {/* 白棋本体与不同粗细的桥接 */}
           <g fill="#ffffff">
             {connectivity.stones.white.map((s) => (
               <circle key={`w-base-${s.x}-${s.y}`} cx={s.x * cellSize} cy={s.y * cellSize} r={stoneRadius} />
@@ -159,14 +157,14 @@ const GoBoard: React.FC<GoBoardProps> = ({ board, onMove, currentPlayer, disable
                 x1={pair.p1.x * cellSize} y1={pair.p1.y * cellSize} 
                 x2={pair.p2.x * cellSize} y2={pair.p2.y * cellSize} 
                 stroke="#ffffff" 
-                strokeWidth={pair.isDiagonal ? cellSize * 0.15 : cellSize * 0.28} 
+                strokeWidth={pair.isDiagonal ? cellSize * 0.08 : cellSize * 0.12} 
                 strokeLinecap="round"
               />
             ))}
           </g>
         </g>
 
-        {/* 辅助装饰层 (不参与粘稠滤镜) */}
+        {/* 幽灵指示器 */}
         {pendingMove && (
           <g transform={`translate(${padding}, ${padding})`}>
             <circle cx={pendingMove.x * cellSize} cy={pendingMove.y * cellSize} r={stoneRadius * 1.1} fill="none" stroke={currentPlayer === 'black' ? 'rgba(0,0,0,0.2)' : 'rgba(255,255,255,0.4)'} strokeDasharray="2,2" />
@@ -187,7 +185,7 @@ const GoBoard: React.FC<GoBoardProps> = ({ board, onMove, currentPlayer, disable
           ))}
         </g>
 
-        {/* 顶层装饰细节 (高光、眼睛等，不参与粘稠) */}
+        {/* 顶层装饰细节 */}
         <g transform={`translate(${padding}, ${padding})`}>
           {connectivity.stones.black.map((s) => (
             <g key={`bf-${s.x}-${s.y}`} className={isLastMove(s.x, s.y) ? 'animate-spring-in' : ''}>
