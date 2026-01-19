@@ -11,22 +11,36 @@
     <style>
         body {
             font-family: 'Quicksand', sans-serif;
-            background-color: #0d0d0d;
+            background-color: #0a0a0a;
             color: #ffffff;
-            overflow-x: hidden;
+            margin: 0;
+            overflow: hidden;
         }
         .title-font {
             font-family: 'Fredoka One', cursive;
         }
 
-        /* 隐藏滚动条 */
-        .scrollbar-hide::-webkit-scrollbar {
-            display: none;
+        /* 初始加载动画 */
+        #loader {
+            position: fixed;
+            inset: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            background: #0a0a0a;
+            z-index: 9999;
+            transition: opacity 0.5s ease;
         }
-        .scrollbar-hide {
-            -ms-overflow-style: none;
-            scrollbar-width: none;
+        .spinner {
+            width: 40px;
+            height: 40px;
+            border: 3px solid rgba(234,179,8,0.1);
+            border-top-color: #eab308;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
         }
+        @keyframes spin { to { transform: rotate(360deg); } }
 
         /* 极致落子弹性动画 */
         @keyframes stone-spring-in {
@@ -40,7 +54,6 @@
             transform-origin: center;
         }
 
-        /* 柔和呼吸 */
         @keyframes stone-float {
             0%, 100% { transform: translateY(0) scale(1); }
             50% { transform: translateY(-1.5px) scale(1.02); }
@@ -50,7 +63,6 @@
             transform-origin: center;
         }
 
-        /* 脉冲指示器：更柔和的多重环 */
         @keyframes indicator-pulse {
             0% { transform: scale(0.8); opacity: 0; }
             50% { transform: scale(1.1); opacity: 0.6; }
@@ -61,7 +73,6 @@
             transform-origin: center;
         }
 
-        /* 表情弹跳入场 */
         @keyframes emoji-pop {
             0% { transform: scale(0); opacity: 0; }
             40% { transform: scale(1.8) rotate(10deg); opacity: 1; }
@@ -71,7 +82,6 @@
             animation: emoji-pop 1.2s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
         }
 
-        /* 吃子消失动画 */
         @keyframes dissolve {
             0% { opacity: 1; transform: scale(1); filter: blur(0px); }
             100% { opacity: 0; transform: scale(1.8); filter: blur(4px); }
@@ -81,10 +91,11 @@
             transform-origin: center;
         }
 
-        /* 背景棋盘阴影 */
         .shadow-board-inner {
             box-shadow: inset 0 0 40px rgba(0,0,0,0.3);
         }
+        .scrollbar-hide::-webkit-scrollbar { display: none; }
+        .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
     </style>
 <script type="importmap">
 {
@@ -97,6 +108,24 @@
 </script>
 </head>
 <body>
+    <div id="loader">
+        <div class="spinner"></div>
+        <p style="color: #eab308; font-size: 10px; font-weight: 900; letter-spacing: 0.2em; margin-top: 15px; text-transform: uppercase;">Initializing Weiqi</p>
+    </div>
     <div id="root"></div>
+    <!-- 显式引入入口文件 -->
+    <script type="module" src="./index.tsx"></script>
+    <script>
+        // 当 React 挂载后移除加载器
+        window.addEventListener('load', () => {
+            const loader = document.getElementById('loader');
+            if(loader) {
+                setTimeout(() => {
+                    loader.style.opacity = '0';
+                    setTimeout(() => loader.remove(), 500);
+                }, 300);
+            }
+        });
+    </script>
 </body>
 </html>

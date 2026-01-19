@@ -4,7 +4,12 @@ import { GameState, PlayerColor, Point, NetworkMessage, ChatMessage, HistoryEntr
 import { GoRules, BOARD_SIZE } from './logic/GoRules';
 import GoBoard from './components/GoBoard';
 
-declare var Peer: any;
+// 扩展 window 类型
+declare global {
+  interface Window {
+    Peer: any;
+  }
+}
 
 const EMOJIS = ['😄', '😭', '😠', '😮', '💡', '⚡', '🔥', '👑', '🥳', '🤔', '🤡', '🚀', '💎', '🧊'];
 
@@ -52,17 +57,12 @@ const App: React.FC = () => {
       const width = window.innerWidth;
       const height = window.innerHeight;
       const isDesktop = width >= 1024;
-      
-      // 移动端预留更多垂直空间给控制按钮和聊天
       const heightPadding = isDesktop ? 180 : 360;
       const widthPadding = isDesktop ? 460 : 32;
-      
       const availableWidth = width - widthPadding;
       const availableHeight = height - heightPadding;
       const minDim = Math.min(availableWidth, availableHeight); 
       const idealSize = Math.floor(minDim / (BOARD_SIZE + 1));
-      
-      // 移动端最小尺寸 18，最大尺寸根据可用空间
       setCellSize(Math.max(isDesktop ? 22 : 16, Math.min(idealSize, 45)));
     };
     handleResize();
@@ -77,20 +77,39 @@ const App: React.FC = () => {
   }, [chatLog]);
 
   useEffect(() => {
-    const peer = new Peer();
-    peerRef.current = peer;
-    peer.on('open', (id: string) => setPeerId(id));
-    peer.on('connection', (conn: any) => {
-      connRef.current = conn;
-      setIsConnected(true);
-      setMyColor('black');
-      setView('game');
-      setupConnection(conn);
-      conn.on('open', () => {
-        conn.send({ type: 'SYNC', payload: { gameState, chatLog } });
-      });
-    });
-    return () => peer.destroy();
+    // 安全初始化 PeerJS
+    const initPeer = () => {
+      if (!window.Peer) {
+        console.warn("PeerJS not loaded yet, retrying...");
+        setTimeout(initPeer, 500);
+        return;
+      }
+      
+      try {
+        const peer = new window.Peer();
+        peerRef.current = peer;
+        peer.on('open', (id: string) => setPeerId(id));
+        peer.on('connection', (conn: any) => {
+          connRef.current = conn;
+          setIsConnected(true);
+          setMyColor('black');
+          setView('game');
+          setupConnection(conn);
+          conn.on('open', () => {
+            conn.send({ type: 'SYNC', payload: { gameState, chatLog } });
+          });
+        });
+        peer.on('error', (err: any) => {
+          console.error("PeerJS Error:", err);
+          addSystemMessage("连接服务错误。");
+        });
+      } catch (e) {
+        console.error("Failed to initialize PeerJS:", e);
+      }
+    };
+
+    initPeer();
+    return () => peerRef.current?.destroy();
   }, []);
 
   const setupConnection = (conn: any) => {
@@ -105,12 +124,17 @@ const App: React.FC = () => {
 
   const connectToPeer = (id: string) => {
     if (!peerRef.current || !id) return;
-    const conn = peerRef.current.connect(id);
-    connRef.current = conn;
-    setIsConnected(true);
-    setMyColor('white');
-    setView('game');
-    setupConnection(conn);
+    try {
+      const conn = peerRef.current.connect(id);
+      connRef.current = conn;
+      setIsConnected(true);
+      setMyColor('white');
+      setView('game');
+      setupConnection(conn);
+    } catch (e) {
+      console.error("Connection failed:", e);
+      addSystemMessage("无法连接到该 ID。");
+    }
   };
 
   const handleNetworkMessage = (msg: NetworkMessage) => {
@@ -350,7 +374,7 @@ const App: React.FC = () => {
           </div>
           <div className="flex flex-col gap-2">
             <label className="text-[10px] font-bold text-gray-500 uppercase px-1">我的连接 ID</label>
-            <div onClick={() => { navigator.clipboard.writeText(peerId); alert('已复制 ID'); }} className="bg-black/50 border border-white/10 rounded-2xl p-4 text-[11px] font-mono text-gray-300 cursor-pointer hover:bg-black/70 flex items-center justify-between transition-all group">
+            <div onClick={() => { if(peerId) { navigator.clipboard.writeText(peerId); alert('已复制 ID'); } }} className="bg-black/50 border border-white/10 rounded-2xl p-4 text-[11px] font-mono text-gray-300 cursor-pointer hover:bg-black/70 flex items-center justify-between transition-all group">
                <span className="truncate mr-2">{peerId || '获取中...'}</span>
                <span className="group-hover:scale-125 transition-transform opacity-60">📋</span>
             </div>
@@ -372,7 +396,6 @@ const App: React.FC = () => {
 
   return (
     <div className="h-screen flex flex-col bg-[#0a0a0a] text-white overflow-hidden select-none">
-      {/* 优化后的顶部导航 */}
       <header className="flex-none w-full max-w-6xl mx-auto flex items-center justify-between px-4 lg:px-6 py-4 bg-neutral-900/60 lg:rounded-b-[2rem] border-b lg:border-x border-white/5 backdrop-blur-md z-50">
         <button onClick={() => setView('lobby')} className="text-gray-500 hover:text-white text-[10px] font-black tracking-widest transition-colors uppercase py-2 px-3 bg-white/5 rounded-xl border border-white/5">‹ 返回</button>
         <div className="flex flex-col items-center">
@@ -385,10 +408,7 @@ const App: React.FC = () => {
         <button onClick={() => resetGame()} className="text-gray-500 hover:text-red-400 text-[10px] font-black transition-colors uppercase py-2 px-3 bg-white/5 rounded-xl border border-white/5">重置</button>
       </header>
 
-      {/* 主游戏区域：使用 Flex 分层处理自适应 */}
       <main className="flex-1 flex flex-col lg:flex-row gap-4 lg:gap-8 w-full max-w-7xl mx-auto p-3 lg:p-6 overflow-hidden">
-        
-        {/* 左侧/顶部：状态仪表盘 */}
         <aside className="flex lg:flex-col gap-3 w-full lg:w-48 shrink-0">
            <div className={`flex-1 lg:flex-none p-4 lg:p-5 rounded-2xl lg:rounded-[2rem] border-2 transition-all duration-500 ${gameState.currentPlayer === 'black' ? 'bg-black border-yellow-500 shadow-xl scale-[1.02]' : 'bg-neutral-900/50 border-transparent opacity-30'} ${flashBlack ? 'animate-flash' : ''}`}>
               <div className="flex items-center justify-between mb-1">
@@ -398,7 +418,6 @@ const App: React.FC = () => {
               <div className="text-yellow-500 text-xs font-black">提子: {gameState.captured.black}</div>
            </div>
            
-           {/* 移动端 Pass 按钮放在中间 */}
            <button 
               disabled={gameState.gameOver || (isConnected && gameState.currentPlayer !== myColor)}
               onClick={() => processPass()} 
@@ -424,7 +443,6 @@ const App: React.FC = () => {
            </button>
         </aside>
 
-        {/* 中心：棋盘 */}
         <div className="flex-1 flex flex-col items-center justify-center min-h-0 relative overflow-visible">
            <div className="relative group transition-transform duration-700 ease-out">
               <GoBoard 
@@ -437,7 +455,6 @@ const App: React.FC = () => {
                 lastMove={gameState.lastMove}
               />
               
-              {/* 弹窗：悔棋请求 */}
               {showUndoRequestModal && (
                 <div className="absolute inset-0 z-[200] flex items-center justify-center bg-black/75 backdrop-blur-md rounded-[2.5rem] animate-fade-in p-6">
                    <div className="bg-neutral-900 p-8 lg:p-10 rounded-[2.5rem] border-2 border-indigo-500 shadow-2xl flex flex-col items-center gap-6 max-w-[90%] lg:max-w-sm text-center">
@@ -451,7 +468,6 @@ const App: React.FC = () => {
                 </div>
               )}
 
-              {/* 弹窗：游戏结束 */}
               {gameState.gameOver && (
                 <div className="absolute inset-0 z-[110] flex items-center justify-center bg-black/80 backdrop-blur-md animate-fade-in rounded-[2.5rem]">
                    <div className="bg-neutral-900 p-10 lg:p-14 rounded-[3.5rem] border-2 border-yellow-500 shadow-2xl flex flex-col items-center gap-6 text-center">
@@ -482,7 +498,6 @@ const App: React.FC = () => {
               )}
            </div>
            
-           {/* 移动端专用的 Undo 按钮 */}
            <button 
               disabled={gameState.gameOver || gameState.history.length === 0 || isWaitingUndoResponse}
               onClick={requestUndo} 
@@ -492,7 +507,6 @@ const App: React.FC = () => {
            </button>
         </div>
 
-        {/* 右侧：聊天 & 表情 */}
         <aside className="w-full lg:w-80 flex flex-col gap-3 shrink-0 h-[280px] lg:h-auto overflow-hidden">
           <div className="flex-1 bg-neutral-900/40 rounded-[2rem] lg:rounded-[2.5rem] border border-white/5 flex flex-col overflow-hidden backdrop-blur-xl shadow-2xl">
             <div className="bg-white/5 px-5 py-3 border-b border-white/5 flex justify-between items-center shrink-0">
@@ -500,7 +514,6 @@ const App: React.FC = () => {
               <span className="text-[8px] font-bold text-gray-700 italic">#{gameState.history.length}</span>
             </div>
             
-            {/* 聊天记录 */}
             <div className="flex-1 overflow-y-auto p-4 lg:p-5 flex flex-col gap-3 scrollbar-hide">
               {chatLog.map((msg) => (
                 <div key={msg.id} className={`flex flex-col ${msg.color === 'spectator' ? 'items-center' : msg.sender === (myColor === 'black' ? '黑方' : '白方') ? 'items-end' : 'items-start'}`}>
@@ -517,7 +530,6 @@ const App: React.FC = () => {
               <div ref={chatEndRef} />
             </div>
             
-            {/* 表情区域：紧凑布局 */}
             <div className="p-3 bg-black/20 border-t border-white/5 shrink-0">
                 <div className="flex justify-between items-center px-1 mb-2">
                     <span className="text-[8px] text-gray-600 uppercase font-black">表情限制</span>
@@ -553,7 +565,6 @@ const App: React.FC = () => {
         </aside>
       </main>
       
-      {/* 底部装饰/反馈条 */}
       <footer className="flex-none h-1 bg-gradient-to-r from-transparent via-yellow-500/20 to-transparent w-full opacity-30"></footer>
     </div>
   );
