@@ -1,0 +1,5 @@
+{
+  "name": "1",
+  "description": "A charming, blob-style Go (Weiqi) game with gooey physics, cute faces, and real-time multiplayer support via PeerJS.",
+  "requestFramePermissions": []
+}
