@@ -1,26 +1,27 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Gooey Go - Premium</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Q弹围棋 - 专业版</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+    <!-- 引入 Babel 使得浏览器能直接运行 TSX -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Fredoka+One&family=Quicksand:wght@400;600&display=swap" rel="stylesheet">
     <style>
         body {
             font-family: 'Quicksand', sans-serif;
-            background-color: #0a0a0a;
+            background-color: #080808;
             color: #ffffff;
             margin: 0;
+            padding: 0;
             overflow: hidden;
+            height: 100vh;
+            width: 100vw;
         }
-        .title-font {
-            font-family: 'Fredoka One', cursive;
-        }
+        .title-font { font-family: 'Fredoka One', cursive; }
 
-        /* 初始加载动画 */
         #loader {
             position: fixed;
             inset: 0;
@@ -28,13 +29,13 @@
             flex-direction: column;
             align-items: center;
             justify-content: center;
-            background: #0a0a0a;
+            background: #080808;
             z-index: 9999;
             transition: opacity 0.5s ease;
         }
         .spinner {
-            width: 40px;
-            height: 40px;
+            width: 32px;
+            height: 32px;
             border: 3px solid rgba(234,179,8,0.1);
             border-top-color: #eab308;
             border-radius: 50%;
@@ -42,66 +43,38 @@
         }
         @keyframes spin { to { transform: rotate(360deg); } }
 
-        /* 极致落子弹性动画 */
+        /* 动画库 */
         @keyframes stone-spring-in {
-            0% { opacity: 0; transform: scale(0.2) translateY(-20px); }
-            50% { opacity: 1; transform: scale(1.1) translateY(0); }
-            70% { transform: scale(0.95); }
+            0% { opacity: 0; transform: scale(0.3) translateY(-10px); }
+            70% { transform: scale(1.1); }
             100% { opacity: 1; transform: scale(1); }
         }
-        .animate-spring-in {
-            animation: stone-spring-in 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
-            transform-origin: center;
-        }
-
-        @keyframes stone-float {
-            0%, 100% { transform: translateY(0) scale(1); }
-            50% { transform: translateY(-1.5px) scale(1.02); }
-        }
-        .animate-float {
-            animation: stone-float 4s ease-in-out infinite;
-            transform-origin: center;
-        }
+        .animate-spring-in { animation: stone-spring-in 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards; }
 
         @keyframes indicator-pulse {
             0% { transform: scale(0.8); opacity: 0; }
-            50% { transform: scale(1.1); opacity: 0.6; }
-            100% { transform: scale(1.4); opacity: 0; }
+            50% { transform: scale(1.2); opacity: 0.5; }
+            100% { transform: scale(1.5); opacity: 0; }
         }
-        .animate-indicator {
-            animation: indicator-pulse 2s infinite ease-out;
-            transform-origin: center;
-        }
+        .animate-indicator { animation: indicator-pulse 2s infinite ease-out; }
 
         @keyframes emoji-pop {
             0% { transform: scale(0); opacity: 0; }
-            40% { transform: scale(1.8) rotate(10deg); opacity: 1; }
-            100% { transform: scale(1) translateY(-80px); opacity: 0; }
+            50% { transform: scale(1.5); opacity: 1; }
+            100% { transform: scale(1) translateY(-60px); opacity: 0; }
         }
-        .animate-emoji-pop {
-            animation: emoji-pop 1.2s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
-        }
+        .animate-emoji-pop { animation: emoji-pop 1.2s forwards; }
 
-        @keyframes dissolve {
-            0% { opacity: 1; transform: scale(1); filter: blur(0px); }
-            100% { opacity: 0; transform: scale(1.8); filter: blur(4px); }
-        }
-        .animate-dissolve {
-            animation: dissolve 0.5s ease-out forwards;
-            transform-origin: center;
-        }
-
-        .shadow-board-inner {
-            box-shadow: inset 0 0 40px rgba(0,0,0,0.3);
-        }
-        .scrollbar-hide::-webkit-scrollbar { display: none; }
-        .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+        .shadow-board-inner { box-shadow: inset 0 0 30px rgba(0,0,0,0.4); }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
     </style>
-<script type="importmap">
+    <script type="importmap">
 {
   "imports": {
+    "react": "https://esm.sh/react@19.2.3",
+    "react-dom/client": "https://esm.sh/react-dom@19.2.3/client",
     "react/": "https://esm.sh/react@^19.2.3/",
-    "react": "https://esm.sh/react@^19.2.3",
     "react-dom/": "https://esm.sh/react-dom@^19.2.3/"
   }
 }
@@ -110,20 +83,22 @@
 <body>
     <div id="loader">
         <div class="spinner"></div>
-        <p style="color: #eab308; font-size: 10px; font-weight: 900; letter-spacing: 0.2em; margin-top: 15px; text-transform: uppercase;">Initializing Weiqi</p>
     </div>
     <div id="root"></div>
-    <!-- 显式引入入口文件 -->
-    <script type="module" src="./index.tsx"></script>
+
+    <!-- 使用 Babel 实时转译 TSX -->
+    <script type="text/babel" data-type="module">
+        import "./index.tsx";
+    </script>
+
     <script>
-        // 当 React 挂载后移除加载器
         window.addEventListener('load', () => {
             const loader = document.getElementById('loader');
             if(loader) {
                 setTimeout(() => {
                     loader.style.opacity = '0';
                     setTimeout(() => loader.remove(), 500);
-                }, 300);
+                }, 500);
             }
         });
     </script>
