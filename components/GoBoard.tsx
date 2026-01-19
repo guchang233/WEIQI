@@ -13,6 +13,7 @@ interface AdjacencyPair {
   p1: Point;
   p2: Point;
   color: PlayerColor;
+  isDiagonal: boolean;
 }
 
 interface GoBoardProps {
@@ -66,9 +67,9 @@ const GoBoard: React.FC<GoBoardProps> = ({ board, onMove, currentPlayer, disable
     }
   };
 
-  // 1. 识别所有相邻的同色棋子（包括斜向）
+  // 1. 识别相邻同色棋子，并区分类型
   const connectivity = useMemo(() => {
-    const stones: {black: Point[], white: Point[]} = { black: [], white: [] };
+    const stones: { black: Point[], white: Point[] } = { black: [], white: [] };
     const pairs: AdjacencyPair[] = [];
     
     board.forEach((row, y) => {
@@ -76,20 +77,20 @@ const GoBoard: React.FC<GoBoardProps> = ({ board, onMove, currentPlayer, disable
         if (!cell) return;
         stones[cell].push({ x, y });
         
-        // 检查右、下、右下、左下邻居
-        const neighbors = [
-          { dx: 1, dy: 0 },  // 右
-          { dx: 0, dy: 1 },  // 下
-          { dx: 1, dy: 1 },  // 右下
-          { dx: -1, dy: 1 }, // 左下
+        // 只检查右方、下方、右下方、左下方，避免重复连接
+        const checkList = [
+          { dx: 1, dy: 0, diag: false }, // 右
+          { dx: 0, dy: 1, diag: false }, // 下
+          { dx: 1, dy: 1, diag: true },  // 右下
+          { dx: -1, dy: 1, diag: true }, // 左下
         ];
 
-        neighbors.forEach(({ dx, dy }) => {
+        checkList.forEach(({ dx, dy, diag }) => {
           const nx = x + dx;
           const ny = y + dy;
           if (nx >= 0 && nx < BOARD_SIZE && ny >= 0 && ny < BOARD_SIZE) {
             if (board[ny][nx] === cell) {
-              pairs.push({ p1: { x, y }, p2: { x: nx, y: ny }, color: cell });
+              pairs.push({ p1: { x, y }, p2: { x: nx, y: ny }, color: cell, isDiagonal: diag });
             }
           }
         });
@@ -111,10 +112,10 @@ const GoBoard: React.FC<GoBoardProps> = ({ board, onMove, currentPlayer, disable
         className="cursor-crosshair touch-none overflow-visible"
       >
         <defs>
-          <filter id="gooey-precise" x="-50%" y="-50%" width="200%" height="200%">
-            {/* 使用非常小的模糊值，仅用于平滑连接处，不再用于强制扩张 */}
-            <feGaussianBlur in="SourceGraphic" stdDeviation={cellSize * 0.12} result="blurred" />
-            <feColorMatrix in="blurred" mode="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 60 -25" result="goo" />
+          <filter id="gooey-extreme-precise" x="-50%" y="-50%" width="200%" height="200%">
+            {/* 进一步减小模糊度 (0.1)，通过提高矩阵对比度 (80) 来获得极其尖锐的“颈部” */}
+            <feGaussianBlur in="SourceGraphic" stdDeviation={cellSize * 0.1} result="blurred" />
+            <feColorMatrix in="blurred" mode="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 80 -38" result="goo" />
           </filter>
         </defs>
 
@@ -128,9 +129,9 @@ const GoBoard: React.FC<GoBoardProps> = ({ board, onMove, currentPlayer, disable
           ))}
         </g>
 
-        {/* 2. 精准粘稠层：仅在有连接的地方绘制“桥接物” */}
-        <g transform={`translate(${padding}, ${padding})`} filter="url(#gooey-precise)">
-          {/* 黑棋粘连层 */}
+        {/* 2. 精准分层粘稠效果 */}
+        <g transform={`translate(${padding}, ${padding})`} filter="url(#gooey-extreme-precise)">
+          {/* 黑棋本体与不同粗细的桥接 */}
           <g fill="#141414">
             {connectivity.stones.black.map((s) => (
               <circle key={`b-base-${s.x}-${s.y}`} cx={s.x * cellSize} cy={s.y * cellSize} r={stoneRadius} />
@@ -141,12 +142,13 @@ const GoBoard: React.FC<GoBoardProps> = ({ board, onMove, currentPlayer, disable
                 x1={pair.p1.x * cellSize} y1={pair.p1.y * cellSize} 
                 x2={pair.p2.x * cellSize} y2={pair.p2.y * cellSize} 
                 stroke="#141414" 
-                strokeWidth={cellSize * 0.35} 
+                // 横竖稍微宽一点点，斜向则使用极细的线条实现“拉丝”
+                strokeWidth={pair.isDiagonal ? cellSize * 0.15 : cellSize * 0.28} 
                 strokeLinecap="round"
               />
             ))}
           </g>
-          {/* 白棋粘连层 */}
+          {/* 白棋本体与不同粗细的桥接 */}
           <g fill="#ffffff">
             {connectivity.stones.white.map((s) => (
               <circle key={`w-base-${s.x}-${s.y}`} cx={s.x * cellSize} cy={s.y * cellSize} r={stoneRadius} />
@@ -157,14 +159,14 @@ const GoBoard: React.FC<GoBoardProps> = ({ board, onMove, currentPlayer, disable
                 x1={pair.p1.x * cellSize} y1={pair.p1.y * cellSize} 
                 x2={pair.p2.x * cellSize} y2={pair.p2.y * cellSize} 
                 stroke="#ffffff" 
-                strokeWidth={cellSize * 0.35} 
+                strokeWidth={pair.isDiagonal ? cellSize * 0.15 : cellSize * 0.28} 
                 strokeLinecap="round"
               />
             ))}
           </g>
         </g>
 
-        {/* 幽灵指示器 */}
+        {/* 辅助装饰层 (不参与粘稠滤镜) */}
         {pendingMove && (
           <g transform={`translate(${padding}, ${padding})`}>
             <circle cx={pendingMove.x * cellSize} cy={pendingMove.y * cellSize} r={stoneRadius * 1.1} fill="none" stroke={currentPlayer === 'black' ? 'rgba(0,0,0,0.2)' : 'rgba(255,255,255,0.4)'} strokeDasharray="2,2" />
@@ -185,7 +187,7 @@ const GoBoard: React.FC<GoBoardProps> = ({ board, onMove, currentPlayer, disable
           ))}
         </g>
 
-        {/* 顶层精致棋子 */}
+        {/* 顶层装饰细节 (高光、眼睛等，不参与粘稠) */}
         <g transform={`translate(${padding}, ${padding})`}>
           {connectivity.stones.black.map((s) => (
             <g key={`bf-${s.x}-${s.y}`} className={isLastMove(s.x, s.y) ? 'animate-spring-in' : ''}>
